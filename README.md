@@ -1,7 +1,7 @@
 # Flix
 
 this is an esp32 based quadcoptor
-The actual code is taken from [flix/okalachev] (https://github.com/vishwa-r-03/flix_quadcoptor.git) and refactored to be supported in platform io. 
+The actual code is taken from [flix/okalachev](https://github.com/vishwa-r-03/flix_quadcoptor.git) and refactored to be supported in platform io. 
 Ive also added proper gyro calliberation without which the drone was flying irratically.
 
 Visit the original repository to find all the detailed description, documentation, tools and controls. As all of those are the same here as well.
