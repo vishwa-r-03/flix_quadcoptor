@@ -10,7 +10,8 @@
 #include "util.h"
 #include "quaternion.h"
 
-MPU6050 imu(Wire);
+//MPU6050 imu(Wire); // uncomment this if you are using MPU6050 instead of MPU9250
+MPU9250 imu(Wire, -1, MPU9250::I2C_ADDR_SEC); // comment out this section if you are using MPU6050 instead of MPU9250
 Vector imuRotation(0, 0, PI / 2); // imu orientation as Euler angles
 
 Vector gyro; // gyroscope output, rad/s
@@ -19,6 +20,8 @@ Vector gyroBias;
 Vector acc; // accelerometer output, m/s/s
 Vector accBias;
 Vector accScale(1, 1, 1);
+
+Vector mag; // Magneteometer output, uT
 
 
 // missing declaration fixes
@@ -52,6 +55,7 @@ void readIMU() {
     imu.waitForData();
     imu.getGyro(gyro.x, gyro.y, gyro.z);
     imu.getAccel(acc.x, acc.y, acc.z);
+    imu.getMag(mag.x, mag.y, mag.z);
 
     // apply scale and bias
     acc = (acc - accBias) / accScale;
@@ -219,11 +223,13 @@ void printIMUInfo() {
 
     imu.waitForData();
 
-    Vector rawGyro, rawAcc;
+    Vector rawGyro, rawAcc, rawMag;
 
     imu.getGyro(rawGyro.x, rawGyro.y, rawGyro.z);
     imu.getAccel(rawAcc.x, rawAcc.y, rawAcc.z);
+    imu.getMag(rawMag.x, rawMag.y, rawMag.z); // comment this line if you are using MPU6050 instead of MPU9250
 
     print("raw gyro: %f %f %f\n", rawGyro.x, rawGyro.y, rawGyro.z);
     print("raw acc: %f %f %f\n", rawAcc.x, rawAcc.y, rawAcc.z);
+    print("raw mag: %f %f %f\n", rawMag.x, rawMag.y, rawMag.z); // comment this line if you are using MPU6050 instead of MPU9250
 }
