@@ -19,7 +19,12 @@ There is no altitude hold and sense of direction as we are using MPU6050. This c
 Currently Im adding an MPU9250 for orientation control to get more accurate yaw control and stabilisation.
 
 ```
-note: Most breakout boards which we buy online which are labelled "MPU9250/6500" or "MPU 92/XX" are not actual MPU9250 breakout boards, instead they are modified 6500 boards and are mostly faulty or doesnot have a magnetometer in it. so make sure to buy verified sensors from trusted sources. Otherwise it can be a big hassle while debugging and incorporation of the module.
+note: Most breakout boards which we buy online which are labelled 
+"MPU9250/6500" or "MPU 92/XX" are not actual MPU9250 breakout boards,
+instead they are modified 6500 boards and are mostly faulty or 
+doesnot have a magnetometer in it. so make sure to buy verified 
+sensors from trusted sources. Otherwise it can be a big hassle 
+while debugging and incorporation of the module.
 ```
 
 ### To caliberate the IMU: 
