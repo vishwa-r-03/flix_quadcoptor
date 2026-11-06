@@ -64,128 +64,158 @@ void controlAttitude();
 void controlRates();
 void controlTorque();
 void desaturate(float& a, float& b, float& c, float& d);
+bool canArm();
+void print(const char* format, ...);
 
 extern Quaternion attitude;
 extern Vector rates;
 extern float motors[4];
+extern bool imuHealthy;
+
+// Central arming interlock: catches arming from the sticks, CLI and MAVLink alike.
+// Arming is refused until the IMU is ready and 3 s have passed since the last disarm.
+static void enforceArmingRules() {
+    static bool wasArmed = false;
+    static uint32_t lastMessage = 0;
+
+    if (armed && !wasArmed && !canArm()) {
+        armed = false;
+        if (millis() - lastMessage > 1000) {
+            print("Arming refused: wait 3 s after disarm/boot and for the gyro bias to be measured.\n");
+            lastMessage = millis();
+        }
+    }
+    wasArmed = armed;
+}
 
 void control() {
-	interpretControls();
-	failsafe();
-	controlAttitude();
-	controlRates();
-	controlTorque();
+    // Sensor initialization is a hard prerequisite for arming/control. Do this
+    // before interpreting pilot commands so no input can re-arm a failed IMU.
+    if (!imuHealthy) {
+        armed = false;
+        torqueTarget.invalidate();
+        memset(motors, 0, sizeof(motors));
+        return;
+    }
+
+    interpretControls();
+    enforceArmingRules();
+    failsafe();
+    controlAttitude();
+    controlRates();
+    controlTorque();
 }
 
 void interpretControls() {
-	if (controlMode < 0.25) mode = flightModes[0];
-	else if (controlMode <= 0.75) mode = flightModes[1];
-	else if (controlMode > 0.75) mode = flightModes[2];
+    if (controlMode < 0.25) mode = flightModes[0];
+    else if (controlMode <= 0.75) mode = flightModes[1];
+    else if (controlMode > 0.75) mode = flightModes[2];
 
-	if (mode == AUTO) return; // pilot is not effective in AUTO mode
+    if (mode == AUTO) return; // pilot is not effective in AUTO mode
 
-	if (controlThrottle < 0.05 && controlYaw > 0.95) armed = true; // arm gesture
-	if (controlThrottle < 0.05 && controlYaw < -0.95) armed = false; // disarm gesture
+    if (controlThrottle < 0.05 && controlYaw > 0.95) armed = true; // arm gesture
+    if (controlThrottle < 0.05 && controlYaw < -0.95) armed = false; // disarm gesture
 
-	if (abs(controlYaw) < 0.1) controlYaw = 0; // yaw dead zone
+    if (abs(controlYaw) < 0.1) controlYaw = 0; // yaw dead zone
 
-	thrustTarget = controlThrottle;
+    thrustTarget = controlThrottle;
 
-	if (mode == STAB) {
-		float yawTarget = attitudeTarget.getYaw();
-		if (!armed || invalid(yawTarget) || controlYaw != 0) yawTarget = attitude.getYaw(); // reset yaw target
-		attitudeTarget = Quaternion::fromEuler(Vector(controlRoll * tiltMax, controlPitch * tiltMax, yawTarget));
-		ratesExtra = Vector(0, 0, -controlYaw * maxRate.z); // positive yaw stick means clockwise rotation in FLU
-	}
+    if (mode == STAB) {
+        float yawTarget = attitudeTarget.getYaw();
+        if (!armed || invalid(yawTarget) || controlYaw != 0) yawTarget = attitude.getYaw(); // reset yaw target
+        attitudeTarget = Quaternion::fromEuler(Vector(controlRoll * tiltMax, controlPitch * tiltMax, yawTarget));
+        ratesExtra = Vector(0, 0, -controlYaw * maxRate.z); // positive yaw stick means clockwise rotation in FLU
+    }
 
-	if (mode == ACRO) {
-		attitudeTarget.invalidate(); // skip attitude control
-		ratesTarget.x = controlRoll * maxRate.x;
-		ratesTarget.y = controlPitch * maxRate.y;
-		ratesTarget.z = -controlYaw * maxRate.z; // positive yaw stick means clockwise rotation in FLU
-	}
+    if (mode == ACRO) {
+        attitudeTarget.invalidate(); // skip attitude control
+        ratesTarget.x = controlRoll * maxRate.x;
+        ratesTarget.y = controlPitch * maxRate.y;
+        ratesTarget.z = -controlYaw * maxRate.z; // positive yaw stick means clockwise rotation in FLU
+    }
 
-	if (mode == RAW) { // direct torque control
-		attitudeTarget.invalidate(); // skip attitude control
-		ratesTarget.invalidate(); // skip rate control
-		torqueTarget = Vector(controlRoll, controlPitch, -controlYaw) * 0.1;
-	}
+    if (mode == RAW) { // direct torque control
+        attitudeTarget.invalidate(); // skip attitude control
+        ratesTarget.invalidate(); // skip rate control
+        torqueTarget = Vector(controlRoll, controlPitch, -controlYaw) * 0.1;
+    }
 }
 
 void controlAttitude() {
-	if (!armed || attitudeTarget.invalid() || thrustTarget < 0.1) return; // skip attitude control
+    if (!armed || attitudeTarget.invalid() || thrustTarget < 0.1) return; // skip attitude control
 
-	const Vector up(0, 0, 1);
-	Vector upActual = Quaternion::rotateVector(up, attitude);
-	Vector upTarget = Quaternion::rotateVector(up, attitudeTarget);
+    const Vector up(0, 0, 1);
+    Vector upActual = Quaternion::rotateVector(up, attitude);
+    Vector upTarget = Quaternion::rotateVector(up, attitudeTarget);
 
-	Vector error = Vector::rotationVectorBetween(upTarget, upActual);
+    Vector error = Vector::rotationVectorBetween(upTarget, upActual);
 
-	ratesTarget.x = rollPID.update(error.x) + ratesExtra.x;
-	ratesTarget.y = pitchPID.update(error.y) + ratesExtra.y;
+    ratesTarget.x = rollPID.update(error.x) + ratesExtra.x;
+    ratesTarget.y = pitchPID.update(error.y) + ratesExtra.y;
 
-	float yawError = wrapAngle(attitudeTarget.getYaw() - attitude.getYaw());
-	ratesTarget.z = yawPID.update(yawError) + ratesExtra.z;
+    float yawError = wrapAngle(attitudeTarget.getYaw() - attitude.getYaw());
+    ratesTarget.z = yawPID.update(yawError) + ratesExtra.z;
 }
 
-
 void controlRates() {
-	if (!armed || ratesTarget.invalid() || thrustTarget < 0.1) return; // skip rates control
+    if (!armed || ratesTarget.invalid() || thrustTarget < 0.1) return; // skip rates control
 
-	Vector error = ratesTarget - rates;
+    Vector error = ratesTarget - rates;
 
-	// Calculate desired torque, where 0 - no torque, 1 - maximum possible torque
-	torqueTarget.x = rollRatePID.update(error.x);
-	torqueTarget.y = pitchRatePID.update(error.y);
-	torqueTarget.z = yawRatePID.update(error.z);
+    // Calculate desired torque, where 0 - no torque, 1 - maximum possible torque
+    torqueTarget.x = rollRatePID.update(error.x);
+    torqueTarget.y = pitchRatePID.update(error.y);
+    torqueTarget.z = yawRatePID.update(error.z);
 }
 
 void controlTorque() {
-	if (!torqueTarget.valid()) return; // skip torque control
+    // Disarm must override every control mode, including direct actuator mode
+    // where torqueTarget is intentionally invalidated.
+    if (!armed) {
+        memset(motors, 0, sizeof(motors));
+        return;
+    }
 
-	if (!armed) {
-		memset(motors, 0, sizeof(motors)); // stop motors if disarmed
-		return;
-	}
+    if (!torqueTarget.valid()) return; // skip torque control
 
-	if (thrustTarget < 0.1) {
-		motors[0] = 0.1; // idle thrust
-		motors[1] = 0.1;
-		motors[2] = 0.1;
-		motors[3] = 0.1;
-		return;
-	}
+    if (thrustTarget < 0.1) {
+        motors[0] = 0.1; // idle thrust
+        motors[1] = 0.1;
+        motors[2] = 0.1;
+        motors[3] = 0.1;
+        return;
+    }
 
-	motors[MOTOR_FRONT_LEFT] = thrustTarget + torqueTarget.x - torqueTarget.y + torqueTarget.z;
-	motors[MOTOR_FRONT_RIGHT] = thrustTarget - torqueTarget.x - torqueTarget.y - torqueTarget.z;
-	motors[MOTOR_REAR_LEFT] = thrustTarget + torqueTarget.x + torqueTarget.y - torqueTarget.z;
-	motors[MOTOR_REAR_RIGHT] = thrustTarget - torqueTarget.x + torqueTarget.y + torqueTarget.z;
+    motors[MOTOR_FRONT_LEFT] = thrustTarget + torqueTarget.x - torqueTarget.y + torqueTarget.z;
+    motors[MOTOR_FRONT_RIGHT] = thrustTarget - torqueTarget.x - torqueTarget.y - torqueTarget.z;
+    motors[MOTOR_REAR_LEFT] = thrustTarget + torqueTarget.x + torqueTarget.y - torqueTarget.z;
+    motors[MOTOR_REAR_RIGHT] = thrustTarget - torqueTarget.x + torqueTarget.y + torqueTarget.z;
 
-	desaturate(motors[MOTOR_FRONT_LEFT], motors[MOTOR_FRONT_RIGHT], motors[MOTOR_REAR_LEFT], motors[MOTOR_REAR_RIGHT]);
+    desaturate(motors[MOTOR_FRONT_LEFT], motors[MOTOR_FRONT_RIGHT], motors[MOTOR_REAR_LEFT], motors[MOTOR_REAR_RIGHT]);
 
-	motors[0] = constrain(motors[0], 0, 1);
-	motors[1] = constrain(motors[1], 0, 1);
-	motors[2] = constrain(motors[2], 0, 1);
-	motors[3] = constrain(motors[3], 0, 1);
+    motors[0] = constrain(motors[0], 0, 1);
+    motors[1] = constrain(motors[1], 0, 1);
+    motors[2] = constrain(motors[2], 0, 1);
+    motors[3] = constrain(motors[3], 0, 1);
 }
 
 void desaturate(float& a, float& b, float& c, float& d) {
-	float maxThrust = max(max(a, b), max(c, d));
-	if (maxThrust > 1) {
-		float diff = maxThrust - 1;
-		a -= diff;
-		b -= diff;
-		c -= diff;
-		d -= diff;
-	}
+    float maxThrust = max(max(a, b), max(c, d));
+    if (maxThrust > 1) {
+        float diff = maxThrust - 1;
+        a -= diff;
+        b -= diff;
+        c -= diff;
+        d -= diff;
+    }
 }
 
 const char* getModeName() {
-	switch (mode) {
-		case RAW: return "RAW";
-		case ACRO: return "ACRO";
-		case STAB: return "STAB";
-		case AUTO: return "AUTO";
-		default: return "UNKNOWN";
-	}
+    switch (mode) {
+        case RAW: return "RAW";
+        case ACRO: return "ACRO";
+        case STAB: return "STAB";
+        case AUTO: return "AUTO";
+        default: return "UNKNOWN";
+    }
 }

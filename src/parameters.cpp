@@ -20,7 +20,6 @@ extern Vector maxRate;
 extern float tiltMax;
 extern Vector imuRotation, accBias, accScale;
 extern int flightModes[3];
-extern Vector gyroBias;
 extern int motorPins[4];
 extern const int MOTOR_REAR_LEFT;
 extern const int MOTOR_REAR_RIGHT;
@@ -128,10 +127,6 @@ Parameter parameters[] = {
     {"IMU_ACC_SCALE_X", &accScale.x},
     {"IMU_ACC_SCALE_Y", &accScale.y},
     {"IMU_ACC_SCALE_Z", &accScale.z},
-
-    {"IMU_GYRO_BIAS_X", &gyroBias.x},
-    {"IMU_GYRO_BIAS_Y", &gyroBias.y},
-    {"IMU_GYRO_BIAS_Z", &gyroBias.z},
 
     // estimate
     {"EST_ACC_WEIGHT", &accWeight},

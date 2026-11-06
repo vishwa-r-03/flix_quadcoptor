@@ -5,6 +5,7 @@
 
 #include "quaternion.h"
 #include "util.h"
+#include <math.h>
 
 extern float controlTime;
 extern float controlRoll, controlPitch, controlThrottle, controlYaw;
@@ -19,6 +20,7 @@ extern float controlMode;
 extern bool armed;
 extern float t;
 extern int mode;
+
 // constants.h
 extern const int RAW;
 extern const int ACRO;
@@ -32,38 +34,50 @@ float rcLossTimeout = 1;
 float descendTime = 10;
 
 void failsafe() {
-	rcLossFailsafe();
-	autoFailsafe();
+    rcLossFailsafe();
+    autoFailsafe();
 }
 
 // RC loss failsafe
 void rcLossFailsafe() {
-	if (!armed) return;
-	if (t - controlTime > rcLossTimeout) {
-		descend();
-	}
+    if (!armed) return;
+
+    if (!isfinite(controlTime) ||
+        !isfinite(t) ||
+        (t - controlTime > rcLossTimeout)) {
+        descend();
+    }
 }
 
 // Smooth descend on RC lost
 void descend() {
-	mode = AUTO;
-	attitudeTarget = Quaternion();
-	thrustTarget -= dt / descendTime;
-	if (thrustTarget < 0) {
-		thrustTarget = 0;
-		armed = false;
-	}
+    mode = AUTO;
+    attitudeTarget = Quaternion();
+    thrustTarget -= dt / descendTime;
+
+    if (thrustTarget < 0) {
+        thrustTarget = 0;
+        armed = false;
+    }
 }
 
 // Allow pilot to interrupt automatic flight
 void autoFailsafe() {
-	static float roll, pitch, yaw, throttle;
-	if (roll != controlRoll || pitch != controlPitch || yaw != controlYaw || abs(throttle - controlThrottle) > 0.05) {
-		// controls changed and mode switch is not configured
-		if (mode == AUTO && invalid(controlMode)) mode = STAB; // regain control by the pilot
-	}
-	roll = controlRoll;
-	pitch = controlPitch;
-	yaw = controlYaw;
-	throttle = controlThrottle;
+    static float roll, pitch, yaw, throttle;
+
+    if (roll != controlRoll ||
+        pitch != controlPitch ||
+        yaw != controlYaw ||
+        abs(throttle - controlThrottle) > 0.05) {
+
+        // controls changed and mode switch is not configured
+        if (mode == AUTO && invalid(controlMode)) {
+            mode = STAB; // regain control by the pilot
+        }
+    }
+
+    roll = controlRoll;
+    pitch = controlPitch;
+    yaw = controlYaw;
+    throttle = controlThrottle;
 }
